@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDGs 마스터 트레이너</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <style>
+        body { 
+            font-family: 'Noto Sans KR', sans-serif; 
+            background-color: #202020;
+            background-image: radial-gradient(#333 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .pixel-font { font-family: 'Press Start 2P', cursive; }
+        
+        /* 레트로 게임 보이 스타일 */
+        .game-boy-border {
+            border: 4px solid #000;
+            box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+            border-radius: 4px;
+        }
+        .game-screen {
+            background-color: #f8f9fa;
+            border: 4px solid #333;
+            border-radius: 8px 8px 30px 8px;
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
+        }
+        .dialog-box {
+            background: white;
+            border: 4px solid #000;
+            padding: 10px;
+            position: relative;
+        }
+        .dialog-box::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            right: 10px;
+            border-width: 10px 10px 0;
+            border-style: solid;
+            border-color: #000 transparent;
+        }
+        
+        /* 버튼 스타일 */
+        .retro-btn {
+            background: #ef4444; /* Pokemon Red */
+            color: white;
+            border: 4px solid #991b1b;
+            border-bottom-width: 8px;
+            transition: all 0.1s;
+        }
+        .retro-btn:active {
+            transform: translateY(4px);
+            border-bottom-width: 4px;
+        }
+        .retro-btn:disabled {
+            background: #718096;
+            border-color: #4a5568;
+            cursor: not-allowed;
+            border-bottom-width: 4px;
+            transform: translateY(4px);
+        }
+
+        /* 뒤로가기 버튼 */
+        .back-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: #cbd5e1;
+            border: 2px solid #000;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 20;
+        }
+        .back-btn:hover { background: #94a3b8; }
+
+        /* 그리드 아이템 스타일 */
+        .grid-item {
+            transition: all 0.3s;
+            position: relative;
+            background-color: #cbd5e1; /* slate-300 */
+        }
+        
+        /* 1. 잠긴 상태 (스캔 전) */
+        .grid-item.locked img {
+            filter: brightness(0) invert(0.8); /* 실루엣 */
+            opacity: 0.5;
+        }
+        
+        /* 2. 스캔됨 (선택 가능, 하지만 미획득) */
+        .grid-item.scanned {
+            background-color: white !important;
+        }
+        .grid-item.scanned img {
+            filter: grayscale(100%); /* 흑백 */
+            opacity: 0.8;
+        }
+
+        /* 3. 획득완료 (배지 획득) */
+        .grid-item.earned {
+            background-color: #fef08a !important; /* yellow-200 */
+            border-color: #eab308 !important;
+        }
+        .grid-item.earned img {
+            filter: none; /* 컬러 */
+            opacity: 1;
+        }
+        .grid-item.earned::after {
+            content: '★';
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            color: #ef4444;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 5;
+        }
+
+        /* 4. 선택됨 (하이라이트) */
+        .grid-item.selected {
+            border-color: #ef4444 !important; /* Red border */
+            transform: scale(1.1);
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        /* 중요: 화면 숨김 처리 */
+        .hidden-section { 
+            display: none !important; 
+        }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .pokemon-bounce {
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- 메인 게임기 프레임 -->
+    <div class="relative w-full max-w-md bg-red-600 rounded-b-3xl rounded-t-xl p-4 shadow-2xl game-boy-border">
+        
+        <!-- 상단 장식 -->
+        <div class="absolute top-0 left-0 w-full h-8 border-b-4 border-black/20 bg-red-700 rounded-t-lg"></div>
+        <div class="flex justify-between items-center mb-4 mt-2 px-2">
+            <div class="text-white font-bold tracking-widest text-xs">● BATTERY</div>
+            <div class="text-white/80 font-black text-xs">SDG-BOY COLOR</div>
+        </div>
+
+        <!-- 스크린 영역 -->
+        <div class="game-screen bg-[#98c99f] h-[600px] overflow-y-auto overflow-x-hidden relative flex flex-col p-4">
+            
+            <!-- 0. 시작 화면 -->
+            <div id="screen-start" class="fade-in flex flex-col items-center justify-center h-full w-full z-10">
+                <div class="w-32 h-32 bg-white rounded-full border-8 border-black flex items-center justify-center mb-6 relative overflow-hidden pokemon-bounce">
+                    <!-- 피카츄 이미지 -->
+                    <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png" class="w-28 h-28 object-contain" alt="Pikachu">
+                </div>
+                
+                <h1 class="text-2xl font-black text-slate-800 mb-2 text-center leading-tight">SDGs<br>마스터 트레이너</h1>
+                <p class="text-xs text-slate-700 font-bold mb-4">모든 파트너를 수집하라!</p>
+
+                <!-- 배지 현황판 -->
+                <div class="bg-slate-800 text-white rounded p-2 mb-6 w-full max-w-[200px] text-center border-2 border-slate-600">
+                    <div class="text-[10px] text-slate-400">CURRENT BADGES</div>
+                    <div class="text-xl font-black text-yellow-400 tracking-widest" id="start-badge-count">0 / 17</div>
+                </div>
+
+                <div class="w-full space-y-3">
+                    <div class="bg-white border-2 border-black p-2 rounded">
+                        <input type="text" id="trainer-name" placeholder="트레이너 이름 입력" class="w-full text-center outline-none font-bold bg-transparent text-black">
+                    </div>
+                    <button onclick="startGame()" class="retro-btn w-full py-3 font-bold text-lg rounded">
+                        모험 시작 (START)
+                    </button>
+                </div>
+            </div>
+
+            <!-- 1. 도감 등록 (17개 학습 및 선택) -->
+            <div id="screen-pokedex" class="hidden-section w-full h-full flex flex-col relative pt-8">
+                <button onclick="goBack('screen-start')" class="back-btn">◀ 처음으로</button>
+                
+                <div class="bg-slate-800 text-white p-2 text-xs font-bold mb-2 border-2 border-black text-center">
+                    파트너 선택 (획득: <span id="pokedex-count">0</span>/17)
+                </div>
+                
+                <!-- 17개 포켓몬 그리드 -->
+                <div id="sdg-grid" class="grid grid-cols-4 gap-1 flex-1 overflow-y-auto mb-4 p-1 border-2 border-black/10 bg-white/50 rounded">
+                    <!-- JS로 생성됨 -->
+                </div>
+
+                <div class="dialog-box mb-2 h-20 flex items-center">
+                    <p class="text-[11px] font-bold leading-relaxed w-full" id="pokedex-msg">
+                        박사님: "데이터 스캔을 먼저 완료하거라!"
+                    </p>
+                </div>
+
+                <button id="scan-btn" onclick="scanPokedex()" class="retro-btn w-full py-3 font-bold rounded">
+                    데이터 스캔 (SCAN)
+                </button>
+                <button id="next-mission-btn" onclick="confirmSelection()" class="hidden w-full bg-blue-600 text-white border-4 border-blue-800 py-3 font-bold rounded game-boy-border hover:bg-blue-500 disabled:opacity-50">
+                    이 파트너로 결정! ▶
+                </button>
+            </div>
+
+            <!-- 2. 퀴즈 배틀 (설명을 보고 제목 맞추기) -->
+            <div id="screen-quiz" class="hidden-section w-full h-full flex flex-col justify-between pt-8">
+                <button onclick="goBack('screen-pokedex')" class="back-btn">◀ 도감으로</button>
+                
+                <div class="bg-black text-white p-1 text-xs text-center border-b-4 border-red-500">
+                    BATTLE PHASE 1
+                </div>
+
+                <div class="flex-1 flex flex-col items-center justify-center">
+                    <div class="text-sm font-bold text-slate-700 mb-2 w-full text-center px-2">
+                        <span class="text-blue-600">이 포켓몬</span>의<br>목표(내용)를 확인해라!
+                    </div>
+                    <div class="w-full bg-slate-200 border-4 border-black p-4 mb-4 text-center relative">
+                        <!-- 이미지 표시 -->
+                        <div class="absolute -top-3 -left-3 bg-red-500 text-white text-[10px] px-2 py-1 font-bold rounded border border-black transform -rotate-12">SDG No.<span id="quiz-num">?</span></div>
+                        <img id="quiz-img" src="" class="w-16 h-16 mx-auto mb-2 animate-bounce object-contain">
+                        
+                        <!-- 힌트: SDG 설명 (Content) -->
+                        <div class="mt-2 bg-white p-2 rounded border border-slate-300 shadow-sm">
+                            <p id="quiz-question" class="font-bold text-sm text-slate-800 break-keep leading-relaxed">
+                                설명 로딩중...
+                            </p>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-1">▲ 위 설명에 해당하는 목표는?</p>
+                    </div>
+                </div>
+
+                <div id="quiz-options" class="grid grid-cols-1 gap-2 mb-2">
+                    <!-- 옵션 버튼 생성됨 -->
+                </div>
+                
+                <div id="quiz-feedback" class="bg-slate-800 text-green-400 text-xs p-2 font-mono hidden text-center">
+                    효과가 굉장했다!
+                </div>
+            </div>
+
+            <!-- 3. 아이디어 슬롯머신 (기술 머신) -->
+            <div id="screen-slot" class="hidden-section w-full h-full flex flex-col pt-8">
+                <button onclick="goBack('screen-quiz')" class="back-btn">◀ 배틀로</button>
+                
+                <div class="bg-black text-white p-1 text-xs text-center border-b-4 border-yellow-500">
+                    BATTLE PHASE 2
+                </div>
+                
+                <div class="mt-4 mb-2 text-center">
+                    <h3 class="font-black text-lg">기술 머신 조합</h3>
+                    <p class="text-[10px] text-slate-600">내 파트너와 함께 해결할 도구를 찾아라!</p>
+                </div>
+
+                <div class="flex gap-1 mb-4 h-24">
+                    <!-- Slot 1: 선택한 목표 (고정) -->
+                    <div class="flex-1 border-4 border-black bg-white flex flex-col items-center justify-center relative overflow-hidden">
+                        <span class="absolute top-1 left-1 text-[8px] bg-red-500 text-white px-1">TARGET</span>
+                        <div id="slot-1" class="font-bold text-sm text-center p-1 break-keep text-red-600">?</div>
+                    </div>
+                    <div class="flex items-center font-black">X</div>
+                    <!-- Slot 2: 도구 (랜덤) -->
+                    <div class="flex-1 border-4 border-black bg-white flex flex-col items-center justify-center relative overflow-hidden">
+                        <span class="absolute top-1 left-1 text-[8px] bg-blue-500 text-white px-1">ITEM</span>
+                        <div id="slot-2" class="font-bold text-sm text-center p-1 break-keep">?</div>
+                    </div>
+                </div>
+
+                <div id="slot-controls">
+                    <button id="spin-btn" onclick="spinSlot()" class="retro-btn w-full py-4 text-lg font-black rounded shadow-lg">
+                        슬롯 돌리기 (SPIN)
+                    </button>
+                </div>
+
+                <div id="slot-result" class="hidden bg-white border-4 border-black p-3 rounded mt-2">
+                    <p class="text-xs font-bold mb-2 text-center">▼ 미션: 옆 사람에게 설명하기</p>
+                    <p class="text-sm text-center bg-slate-100 p-2 rounded break-keep">
+                        "<span id="res-item" class="text-blue-600 font-bold"></span>"(으)로<br>
+                        "<span id="res-target" class="text-red-600 font-bold"></span>" 해결하기!
+                    </p>
+                    <button onclick="goPledge()" class="mt-2 w-full bg-green-600 text-white py-2 text-xs font-bold border-2 border-black">
+                        공격 성공 (다음 단계)
+                    </button>
+                </div>
+            </div>
+
+            <!-- 4. 서약 (맞춤형 행동 선택) -->
+            <div id="screen-pledge" class="hidden-section w-full h-full flex flex-col pt-8">
+                <button onclick="goBack('screen-slot')" class="back-btn">◀ 기술머신으로</button>
+                
+                <div class="bg-black text-white p-1 text-xs text-center border-b-4 border-green-500">
+                    FINAL SYNC
+                </div>
+
+                <div class="flex-1 flex flex-col items-center justify-center text-center p-2">
+                    <h3 class="font-black text-sm mb-2">파트너와 함께할<br>행동을 선택해라!</h3>
+                    
+                    <!-- 현재 파트너 표시 -->
+                    <div class="mb-4 bg-slate-200 border-4 border-slate-400 p-2 rounded-full w-24 h-24 flex items-center justify-center mx-auto relative">
+                        <img id="pledge-partner-img" src="" class="w-20 h-20 object-contain pokemon-bounce">
+                        <div class="absolute -bottom-2 bg-black text-white text-[10px] px-2 rounded-full border border-white" id="pledge-partner-name">...</div>
+                    </div>
+
+                    <!-- 맞춤형 행동 리스트 (JS로 생성) -->
+                    <div id="action-list" class="grid grid-cols-1 gap-2 w-full overflow-y-auto max-h-[220px]">
+                        <!-- JS가 채워넣음 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. 결과 (트레이너 카드) -->
+            <div id="screen-result" class="hidden-section w-full h-full flex flex-col items-center justify-center bg-slate-900 absolute top-0 left-0 z-50">
+                <div class="bg-[#f0f0f0] w-full max-w-xs border-4 border-yellow-400 rounded-lg p-4 shadow-[0_0_20px_rgba(255,255,0,0.5)] relative">
+                    <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 text-xs font-black border-2 border-white rounded-full">
+                        TRAINER CARD
+                    </div>
+
+                    <div class="flex gap-4 mt-4 mb-4 border-b-2 border-slate-300 pb-4">
+                        <div class="w-16 h-16 bg-white border-2 border-slate-500 flex items-center justify-center overflow-hidden rounded relative">
+                            <img id="card-img" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" class="w-full h-full object-contain p-1">
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-500 font-bold">NAME</div>
+                            <div id="card-name" class="text-lg font-black text-slate-900 truncate w-24">---</div>
+                            <div class="text-[10px] text-slate-500 font-bold mt-1">ID No.</div>
+                            <div class="text-xs font-mono text-slate-800">2030-SDG-17</div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 text-sm text-slate-800">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-600 text-xs">COLLECTION</span>
+                            <span id="card-badges" class="font-black text-red-500">0/17</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-600 text-xs">NEW PARTNER</span>
+                            <span id="card-partner" class="font-black text-blue-600 text-xs text-right">---</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-slate-600 text-xs">ACTION</span>
+                            <span id="card-pledge" class="font-black text-green-600 text-xs text-right">---</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 bg-slate-800 text-white p-2 text-[10px] text-center rounded border border-black">
+                        "지속가능한 미래를 위한<br>마스터 트레이너임을 인증함"
+                    </div>
+                </div>
+
+                <div class="mt-6 text-center">
+                    <p class="text-white text-[10px] mb-2">모든 파트너를 모을 때까지 도전하세요!</p>
+                    <button onclick="restartGame()" class="text-yellow-400 font-bold text-xs underline cursor-pointer hover:text-white border-2 border-transparent hover:border-white p-1 rounded">
+                        ↻ 다른 파트너 찾으러 가기 (재시작)
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 하단 컨트롤러 장식 -->
+        <div class="mt-6 flex justify-between items-end px-4">
+            <div class="w-24 h-24 bg-black rounded-full flex items-center justify-center relative shadow-lg">
+                <div class="w-8 h-24 bg-slate-800 absolute rounded"></div>
+                <div class="w-24 h-8 bg-slate-800 absolute rounded"></div>
+            </div>
+            <div class="space-x-4 mb-4">
+                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1">
+                    <span class="block text-center text-red-900 font-bold text-xs mt-12">B</span>
+                </div>
+                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1">
+                    <span class="block text-center text-red-900 font-bold text-xs mt-12">A</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // SDGs 17개 데이터 (행동(actions) 데이터 추가됨)
+        const sdgsData = [
+            { id: 1, title: "빈곤 퇴치", desc: "모든 곳에서 모든 형태의 빈곤을 없앱니다.", pokeId: 19, actions: ["용돈 아껴 기부하기", "나눔 장터 참여하기", "친구와 간식 나누기"] }, 
+            { id: 2, title: "기아 종식", desc: "기아를 끝내고 식량 안보를 달성합니다.", pokeId: 143, actions: ["음식 남기지 않기", "편식하지 않기", "지역 농산물 먹기"] },
+            { id: 3, title: "건강과 웰빙", desc: "모든 연령층의 건강한 삶을 보장합니다.", pokeId: 113, actions: ["하루 30분 운동하기", "손 깨끗이 씻기", "일찍 자고 일찍 일어나기"] },
+            { id: 4, title: "양질의 교육", desc: "모두에게 평등한 양질의 교육을 제공합니다.", pokeId: 63, actions: ["하루 한 권 책 읽기", "친구에게 모르는 것 알려주기", "새로운 취미 배우기"] },
+            { id: 5, title: "성평등", desc: "성평등을 달성하고 여성의 역량을 강화합니다.", pokeId: 31, actions: ["성별 고정관념 버리기", "서로 존중하는 말 쓰기", "집안일 공평하게 나누기"] },
+            { id: 6, title: "물과 위생", desc: "모두를 위한 물과 위생의 이용을 보장합니다.", pokeId: 7, actions: ["양치컵 사용하기", "샤워 시간 줄이기", "기름기 있는 접시 닦고 씻기"] },
+            { id: 7, title: "청정 에너지", desc: "적정 가격의 신뢰할 수 있는 에너지를 보장합니다.", pokeId: 25, actions: ["안 쓰는 플러그 뽑기", "낮에는 불 끄기", "계단 이용하기"] },
+            { id: 8, title: "좋은 일자리", desc: "지속가능한 경제 성장과 일자리를 증진합니다.", pokeId: 66, actions: ["공정무역 초콜릿 먹기", "부모님 일손 돕기", "안전하게 생활하기"] },
+            { id: 9, title: "산업 혁신", desc: "탄력적인 사회기반시설을 구축합니다.", pokeId: 81, actions: ["발명 아이디어 내기", "고장 난 물건 고쳐 쓰기", "대중교통 이용하기"] },
+            { id: 10, title: "불평등 감소", desc: "국가 내, 국가 간 불평등을 줄입니다.", pokeId: 115, actions: ["친구 차별하지 않기", "고운 말 사용하기", "도움이 필요한 친구 돕기"] },
+            { id: 11, title: "지속가능 도시", desc: "포용적이고 안전한 도시를 만듭니다.", pokeId: 16, actions: ["쓰레기 줍기", "재활용 분리배출 잘하기", "자전거 타기"] },
+            { id: 12, title: "책임 소비", desc: "지속가능한 소비와 생산 양식을 보장합니다.", pokeId: 52, actions: ["텀블러 사용하기", "비닐봉지 대신 장바구니", "필요한 물건만 사기"] },
+            { id: 13, title: "기후 행동", desc: "기후변화와 그 영향에 긴급히 대응합니다.", pokeId: 38, actions: ["고기 없는 식단 도전", "나무 심기", "가까운 거리는 걷기"] },
+            { id: 14, title: "해양 생태계", desc: "해양 자원을 보존하고 지속가능하게 사용합니다.", pokeId: 131, actions: ["플라스틱 빨대 안 쓰기", "바닷가 쓰레기 줍기", "물티슈 사용 줄이기"] },
+            { id: 15, title: "육상 생태계", desc: "육상 생태계를 보호하고 복원합니다.", pokeId: 1, actions: ["이면지 활용하기", "동물 보호하기", "종이컵 안 쓰기"] },
+            { id: 16, title: "평화와 정의", desc: "평화롭고 포용적인 사회를 증진합니다.", pokeId: 149, actions: ["친구 이야기 경청하기", "따돌림 시키지 않기", "규칙 잘 지키기"] },
+            { id: 17, title: "파트너십", desc: "이행 수단을 강화하고 글로벌 파트너십을 활성화합니다.", pokeId: 151, actions: ["친구와 협동하기", "서로 칭찬하기", "함께 문제 해결하기"] }
+        ];
+
+        const tools = ["스마트폰", "드론", "3D 프린터", "자전거", "SNS", "태양광 패널", "인공지능", "로봇", "재활용 박스", "유튜브"];
+        let trainerName = "";
+        let selectedMission = null; // 사용자가 선택한 목표 객체
+        let isScanComplete = false;
+        
+        // 중요: 획득한 배지를 저장하는 Set (중복 제거)
+        const earnedBadges = new Set();
+
+        // 화면 전환
+        function showScreen(id) {
+            document.querySelectorAll('.game-screen > div').forEach(el => {
+                if(el.id && el.id.startsWith('screen-')) {
+                    el.classList.add('hidden-section');
+                    el.classList.remove('fade-in');
+                }
+            });
+            const target = document.getElementById(id);
+            target.classList.remove('hidden-section');
+            target.classList.add('fade-in');
+
+            // 화면 진입 시 특정 로직 실행
+            if(id === 'screen-slot') {
+                resetSlotMachine();
+            }
+        }
+
+        function goBack(targetId) {
+            showScreen(targetId);
+        }
+
+        // 1. 게임 시작
+        function startGame() {
+            const nameInput = document.getElementById('trainer-name');
+            if(!nameInput.value) { alert("트레이너 이름을 입력하세요!"); return; }
+            trainerName = nameInput.value;
+            
+            selectedMission = null;
+            isScanComplete = false;
+            
+            // UI 초기화
+            document.getElementById('pokedex-msg').innerHTML = `박사님: "17마리의 파트너를 모두 모아보거라!"`;
+            const scanBtn = document.getElementById('scan-btn');
+            scanBtn.classList.remove('hidden');
+            scanBtn.disabled = false;
+            scanBtn.innerText = "데이터 스캔 (SCAN)";
+            
+            const nextBtn = document.getElementById('next-mission-btn');
+            nextBtn.classList.add('hidden');
+            nextBtn.disabled = true;
+
+            // 도감 현황 업데이트
+            document.getElementById('pokedex-count').innerText = earnedBadges.size;
+
+            // 도감 생성
+            const grid = document.getElementById('sdg-grid');
+            grid.innerHTML = "";
+            sdgsData.forEach(sdg => {
+                const div = document.createElement('div');
+                div.className = "grid-item locked aspect-square flex flex-col items-center justify-center p-1 rounded cursor-pointer border border-slate-400 select-none";
+                
+                // 이미 획득한 배지 체크
+                if (earnedBadges.has(sdg.id)) {
+                    div.classList.remove('locked');
+                    div.classList.add('earned');
+                }
+
+                const img = document.createElement('img');
+                img.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${sdg.pokeId}.png`;
+                img.className = "w-full h-full object-contain";
+                div.appendChild(img);
+
+                div.id = `sdg-cell-${sdg.id}`;
+                div.onclick = () => selectMission(sdg);
+                grid.appendChild(div);
+            });
+
+            showScreen('screen-pokedex');
+        }
+
+        // 2. 도감 스캔
+        function scanPokedex() {
+            const btn = document.getElementById('scan-btn');
+            btn.disabled = true;
+            btn.innerText = "스캔 중...";
+            
+            let i = 0;
+            const interval = setInterval(() => {
+                if(i >= sdgsData.length) {
+                    clearInterval(interval);
+                    isScanComplete = true;
+                    document.getElementById('pokedex-msg').innerHTML = "<span class='text-blue-600'>스캔 완료!</span><br>이 중 마음에 드는 파트너를 <span class='text-red-600'>선택</span>해라!";
+                    btn.classList.add('hidden');
+                    document.getElementById('next-mission-btn').classList.remove('hidden');
+                    return;
+                }
+                
+                const cell = document.getElementById(`sdg-cell-${sdgsData[i].id}`);
+                // 이미 획득한 게 아니면 흑백 오픈
+                if (!cell.classList.contains('earned')) {
+                    cell.classList.remove('locked');
+                    cell.classList.add('scanned');
+                }
+                
+                // 주의: 여기서 Title을 보여주지 않음 (정답 유출 방지)
+                cell.title = `SDG #${sdgsData[i].id}`; 
+                
+                // 번호 뱃지
+                if(!cell.querySelector('.badge-num')) {
+                    const badge = document.createElement('div');
+                    badge.className = "badge-num absolute top-0 right-0 bg-black text-white text-[8px] px-1 rounded-bl";
+                    badge.innerText = sdgsData[i].id;
+                    cell.appendChild(badge);
+                }
+
+                i++;
+            }, 30);
+        }
+
+        // 2.5 목표 선택 (정보 숨김 - 호기심 유발)
+        function selectMission(sdg) {
+            if(!isScanComplete) return; 
+
+            selectedMission = sdg;
+            
+            document.querySelectorAll('.grid-item').forEach(el => el.classList.remove('selected'));
+            document.getElementById(`sdg-cell-${sdg.id}`).classList.add('selected');
+            
+            // 제목과 설명을 숨기고 번호만 보여줌
+            document.getElementById('pokedex-msg').innerHTML = `선택: <span class='text-red-600 font-bold'>SDG #${sdg.id}</span><br>이 파트너의 정체를 밝히러 가겠나?`;
+            const nextBtn = document.getElementById('next-mission-btn');
+            nextBtn.disabled = false;
+        }
+
+        function confirmSelection() {
+            if(!selectedMission) { alert("목표를 먼저 선택해주세요!"); return; }
+            startQuiz();
+        }
+
+        // 3. 퀴즈 배틀 (설명 보고 제목 맞추기)
+        function startQuiz() {
+            showScreen('screen-quiz');
+            document.getElementById('quiz-num').innerText = selectedMission.id;
+            generateIdentityQuiz();
+        }
+
+        function generateIdentityQuiz() {
+            const answer = selectedMission;
+            
+            // 이미지 표시
+            document.getElementById('quiz-img').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${answer.pokeId}.png`;
+            
+            // 핵심 변경: 퀴즈 질문을 "설명"으로 보여줌
+            document.getElementById('quiz-question').innerText = `"${answer.desc}"`;
+            
+            // 정답 + 오답 2개
+            let options = [answer];
+            while(options.length < 3) {
+                const wrong = sdgsData[Math.floor(Math.random() * sdgsData.length)];
+                if(wrong.id !== answer.id && !options.includes(wrong)) options.push(wrong);
+            }
+            options.sort(() => Math.random() - 0.5);
+
+            const btnContainer = document.getElementById('quiz-options');
+            btnContainer.innerHTML = "";
+            
+            options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = "w-full bg-white border-2 border-black py-3 rounded hover:bg-slate-100 font-bold text-sm transition";
+                
+                // 보기는 "번호: 제목" (설명은 뺌, 왜냐하면 문제가 설명이니까)
+                btn.innerText = `${opt.id}번: ${opt.title}`;
+                
+                btn.onclick = () => submitQuiz(opt.id === answer.id);
+                btnContainer.appendChild(btn);
+            });
+            
+            document.getElementById('quiz-feedback').classList.add('hidden');
+        }
+
+        function submitQuiz(isCorrect) {
+            const feedback = document.getElementById('quiz-feedback');
+            feedback.classList.remove('hidden');
+            
+            if(isCorrect) {
+                feedback.innerHTML = `정답! 이 파트너는<br><span class='text-yellow-400'>${selectedMission.title}</span> 담당이다!`;
+                feedback.className = "bg-blue-600 text-white font-bold p-2 border-2 border-black rounded mb-2";
+                if(typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+                setTimeout(() => showScreen('screen-slot'), 2000);
+            } else {
+                feedback.innerText = "틀렸다! 설명을 다시 잘 읽어봐라.";
+                feedback.className = "bg-red-100 text-red-700 font-bold p-2 border-2 border-red-500 rounded mb-2 animate-bounce";
+            }
+        }
+
+        // 4. 슬롯 머신
+        function resetSlotMachine() {
+            const btn = document.getElementById('spin-btn');
+            const resultBox = document.getElementById('slot-result');
+            const slot1 = document.getElementById('slot-1');
+            const slot2 = document.getElementById('slot-2');
+            
+            btn.classList.remove('hidden');
+            btn.disabled = false;
+            btn.innerText = "슬롯 돌리기 (SPIN)";
+            resultBox.classList.add('hidden');
+            
+            slot1.innerText = selectedMission ? selectedMission.title : "?";
+            slot1.classList.add('text-red-600');
+            slot2.innerText = "?";
+        }
+
+        function spinSlot() {
+            const btn = document.getElementById('spin-btn');
+            const resultBox = document.getElementById('slot-result');
+            const slot1 = document.getElementById('slot-1');
+            const slot2 = document.getElementById('slot-2');
+            
+            btn.disabled = true;
+            resultBox.classList.add('hidden');
+            slot1.innerText = selectedMission.title;
+
+            let count = 0;
+            const timer = setInterval(() => {
+                slot2.innerText = tools[Math.floor(Math.random()*tools.length)];
+                count++;
+                if(count > 20) {
+                    clearInterval(timer);
+                    const finalTool = tools[Math.floor(Math.random()*tools.length)];
+                    
+                    slot1.innerText = selectedMission.title;
+                    slot2.innerText = finalTool;
+                    
+                    document.getElementById('res-target').innerText = selectedMission.title;
+                    document.getElementById('res-item').innerText = finalTool;
+                    
+                    resultBox.classList.remove('hidden');
+                    btn.classList.add('hidden');
+                }
+            }, 80);
+        }
+
+        function goPledge() {
+            // 파트너 정보 세팅
+            document.getElementById('pledge-partner-img').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${selectedMission.pokeId}.png`;
+            document.getElementById('pledge-partner-name').innerText = selectedMission.title;
+            
+            // 맞춤형 행동 리스트 생성
+            const listContainer = document.getElementById('action-list');
+            listContainer.innerHTML = "";
+            
+            selectedMission.actions.forEach((actionText, index) => {
+                const btn = document.createElement('button');
+                btn.className = "bg-white border-4 border-slate-300 hover:border-green-500 p-3 rounded-xl flex items-center gap-3 transition group text-left";
+                
+                const icons = ["🔥", "🌿", "💧"];
+                const icon = icons[index % icons.length];
+
+                btn.innerHTML = `
+                    <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-lg">${icon}</div>
+                    <div>
+                        <div class="text-[9px] font-bold text-slate-500">ACTION 0${index+1}</div>
+                        <div class="font-bold text-xs">${actionText}</div>
+                    </div>
+                `;
+                btn.onclick = () => selectPledge(actionText);
+                listContainer.appendChild(btn);
+            });
+
+            showScreen('screen-pledge');
+        }
+
+        // 5. 결과 및 배지 획득
+        function selectPledge(pledgeName) {
+            earnedBadges.add(selectedMission.id);
+            const currentScore = earnedBadges.size;
+
+            document.getElementById('card-name').innerText = trainerName;
+            document.getElementById('card-pledge').innerText = pledgeName;
+            document.getElementById('card-partner').innerText = selectedMission.title;
+            document.getElementById('card-badges').innerText = `${currentScore}/17`;
+            
+            document.getElementById('card-img').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${selectedMission.pokeId}.png`;
+            
+            showScreen('screen-result');
+            if(typeof confetti === 'function') confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+        }
+
+        function restartGame() {
+            document.getElementById('start-badge-count').innerText = `${earnedBadges.size} / 17`;
+            showScreen('screen-start');
+        }
+    </script>
+</body>
+</html>
