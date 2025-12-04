@@ -7,6 +7,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+    <!-- 화면 캡처를 위한 라이브러리 추가 -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
         body { 
             font-family: 'Noto Sans KR', sans-serif; 
@@ -79,6 +81,20 @@
             z-index: 20;
         }
         .back-btn:hover { background: #94a3b8; }
+        
+        /* 사운드 토글 버튼 */
+        .sound-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #cbd5e1;
+            border: 2px solid #000;
+            padding: 2px 8px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 20;
+        }
 
         /* 그리드 아이템 스타일 */
         .grid-item {
@@ -161,6 +177,9 @@
         <!-- 스크린 영역 -->
         <div class="game-screen bg-[#98c99f] h-[600px] overflow-y-auto overflow-x-hidden relative flex flex-col p-4">
             
+            <!-- 사운드 토글 버튼 -->
+            <button id="sound-toggle" class="sound-btn" onclick="toggleSound()">🔊</button>
+
             <!-- 0. 시작 화면 -->
             <div id="screen-start" class="fade-in flex flex-col items-center justify-center h-full w-full z-10">
                 <div class="w-32 h-32 bg-white rounded-full border-8 border-black flex items-center justify-center mb-6 relative overflow-hidden pokemon-bounce">
@@ -321,7 +340,8 @@
 
             <!-- 5. 결과 (트레이너 카드) -->
             <div id="screen-result" class="hidden-section w-full h-full flex flex-col items-center justify-center bg-slate-900 absolute top-0 left-0 z-50">
-                <div class="bg-[#f0f0f0] w-full max-w-xs border-4 border-yellow-400 rounded-lg p-4 shadow-[0_0_20px_rgba(255,255,0,0.5)] relative">
+                <!-- 캡처 대상: ID 부여 -->
+                <div id="trainer-card-capture" class="bg-[#f0f0f0] w-full max-w-xs border-4 border-yellow-400 rounded-lg p-4 shadow-[0_0_20px_rgba(255,255,0,0.5)] relative">
                     <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 text-xs font-black border-2 border-white rounded-full">
                         TRAINER CARD
                     </div>
@@ -358,11 +378,16 @@
                     </div>
                 </div>
 
-                <div class="mt-6 text-center">
-                    <p class="text-white text-[10px] mb-2">모든 파트너를 모을 때까지 도전하세요!</p>
-                    <button onclick="restartGame()" class="text-yellow-400 font-bold text-xs underline cursor-pointer hover:text-white border-2 border-transparent hover:border-white p-1 rounded">
-                        ↻ 다른 파트너 찾으러 가기 (재시작)
+                <div class="mt-6 text-center space-y-2">
+                    <button onclick="downloadBadge()" class="bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded shadow-lg hover:bg-blue-500 transition border-2 border-white">
+                        💾 뱃지(이미지) 다운로드
                     </button>
+                    <div>
+                        <p class="text-white text-[10px] mb-2">모든 파트너를 모을 때까지 도전하세요!</p>
+                        <button onclick="restartGame()" class="text-yellow-400 font-bold text-xs underline cursor-pointer hover:text-white border-2 border-transparent hover:border-white p-1 rounded">
+                            ↻ 다른 파트너 찾으러 가기 (재시작)
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -375,10 +400,10 @@
                 <div class="w-24 h-8 bg-slate-800 absolute rounded"></div>
             </div>
             <div class="space-x-4 mb-4">
-                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1">
+                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1" onclick="SoundManager.play('click')">
                     <span class="block text-center text-red-900 font-bold text-xs mt-12">B</span>
                 </div>
-                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1">
+                <div class="inline-block w-12 h-12 bg-red-800 rounded-full shadow-inner border-b-4 border-red-900 transform active:translate-y-1" onclick="SoundManager.play('click')">
                     <span class="block text-center text-red-900 font-bold text-xs mt-12">A</span>
                 </div>
             </div>
@@ -387,7 +412,88 @@
     </div>
 
     <script>
-        // SDGs 17개 데이터 (행동(actions) 데이터 추가됨)
+        // --- 사운드 매니저 (8-bit 신디사이저) ---
+        const SoundManager = {
+            ctx: null,
+            enabled: true,
+            init: function() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            },
+            toggle: function() {
+                this.enabled = !this.enabled;
+                const btn = document.getElementById('sound-toggle');
+                btn.innerText = this.enabled ? '🔊' : '🔇';
+                return this.enabled;
+            },
+            playTone: function(freq, type, duration, startTime = 0) {
+                if (!this.enabled || !this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime + startTime);
+                
+                // 엔벨로프 (짧고 끊어지는 레트로 느낌)
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime + startTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + startTime + duration);
+                
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(this.ctx.currentTime + startTime);
+                osc.stop(this.ctx.currentTime + startTime + duration);
+            },
+            play: function(name) {
+                if (!this.enabled) return;
+                this.init();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+
+                switch(name) {
+                    case 'click':
+                        this.playTone(800, 'square', 0.05);
+                        break;
+                    case 'start':
+                        // 띠리링~
+                        this.playTone(440, 'square', 0.1, 0);
+                        this.playTone(554, 'square', 0.1, 0.1);
+                        this.playTone(659, 'square', 0.2, 0.2);
+                        break;
+                    case 'scan':
+                        // 데이터 전송음 (빠른 랜덤)
+                        for(let i=0; i<5; i++) {
+                            this.playTone(1000 + Math.random()*500, 'sawtooth', 0.03, i*0.04);
+                        }
+                        break;
+                    case 'success':
+                        // 긍정적 3화음
+                        this.playTone(523.25, 'square', 0.1, 0); // C5
+                        this.playTone(659.25, 'square', 0.1, 0.1); // E5
+                        this.playTone(783.99, 'square', 0.2, 0.2); // G5
+                        break;
+                    case 'error':
+                        // 부정적 하강음
+                        this.playTone(300, 'sawtooth', 0.15, 0);
+                        this.playTone(150, 'sawtooth', 0.2, 0.15);
+                        break;
+                    case 'spin':
+                        // 틱
+                        this.playTone(200, 'triangle', 0.05);
+                        break;
+                    case 'win':
+                        // 팡파레
+                        [523, 659, 784, 1046, 784, 1046].forEach((f, i) => {
+                            this.playTone(f, 'square', 0.15, i*0.15);
+                        });
+                        break;
+                }
+            }
+        };
+
+        function toggleSound() {
+            SoundManager.toggle();
+        }
+
+        // --- 기존 데이터 ---
         const sdgsData = [
             { id: 1, title: "빈곤 퇴치", desc: "모든 곳에서 모든 형태의 빈곤을 없앱니다.", pokeId: 19, actions: ["용돈 아껴 기부하기", "나눔 장터 참여하기", "친구와 간식 나누기"] }, 
             { id: 2, title: "기아 종식", desc: "기아를 끝내고 식량 안보를 달성합니다.", pokeId: 143, actions: ["음식 남기지 않기", "편식하지 않기", "지역 농산물 먹기"] },
@@ -410,14 +516,12 @@
 
         const tools = ["스마트폰", "드론", "3D 프린터", "자전거", "SNS", "태양광 패널", "인공지능", "로봇", "재활용 박스", "유튜브"];
         let trainerName = "";
-        let selectedMission = null; // 사용자가 선택한 목표 객체
+        let selectedMission = null; 
         let isScanComplete = false;
-        
-        // 중요: 획득한 배지를 저장하는 Set (중복 제거)
         const earnedBadges = new Set();
 
-        // 화면 전환
         function showScreen(id) {
+            SoundManager.play('click'); // 화면 전환 시 클릭음
             document.querySelectorAll('.game-screen > div').forEach(el => {
                 if(el.id && el.id.startsWith('screen-')) {
                     el.classList.add('hidden-section');
@@ -428,7 +532,6 @@
             target.classList.remove('hidden-section');
             target.classList.add('fade-in');
 
-            // 화면 진입 시 특정 로직 실행
             if(id === 'screen-slot') {
                 resetSlotMachine();
             }
@@ -438,16 +541,17 @@
             showScreen(targetId);
         }
 
-        // 1. 게임 시작
         function startGame() {
             const nameInput = document.getElementById('trainer-name');
             if(!nameInput.value) { alert("트레이너 이름을 입력하세요!"); return; }
             trainerName = nameInput.value;
             
+            // 첫 사운드 재생 (AudioContext 시작)
+            SoundManager.play('start');
+
             selectedMission = null;
             isScanComplete = false;
             
-            // UI 초기화
             document.getElementById('pokedex-msg').innerHTML = `박사님: "17마리의 파트너를 모두 모아보거라!"`;
             const scanBtn = document.getElementById('scan-btn');
             scanBtn.classList.remove('hidden');
@@ -458,17 +562,14 @@
             nextBtn.classList.add('hidden');
             nextBtn.disabled = true;
 
-            // 도감 현황 업데이트
             document.getElementById('pokedex-count').innerText = earnedBadges.size;
 
-            // 도감 생성
             const grid = document.getElementById('sdg-grid');
             grid.innerHTML = "";
             sdgsData.forEach(sdg => {
                 const div = document.createElement('div');
                 div.className = "grid-item locked aspect-square flex flex-col items-center justify-center p-1 rounded cursor-pointer border border-slate-400 select-none";
                 
-                // 이미 획득한 배지 체크
                 if (earnedBadges.has(sdg.id)) {
                     div.classList.remove('locked');
                     div.classList.add('earned');
@@ -487,34 +588,34 @@
             showScreen('screen-pokedex');
         }
 
-        // 2. 도감 스캔
         function scanPokedex() {
             const btn = document.getElementById('scan-btn');
             btn.disabled = true;
             btn.innerText = "스캔 중...";
+            SoundManager.play('click');
             
             let i = 0;
             const interval = setInterval(() => {
+                if (i % 3 === 0) SoundManager.play('scan'); // 스캔 소리 간헐적 재생
+
                 if(i >= sdgsData.length) {
                     clearInterval(interval);
                     isScanComplete = true;
                     document.getElementById('pokedex-msg').innerHTML = "<span class='text-blue-600'>스캔 완료!</span><br>이 중 마음에 드는 파트너를 <span class='text-red-600'>선택</span>해라!";
                     btn.classList.add('hidden');
                     document.getElementById('next-mission-btn').classList.remove('hidden');
+                    SoundManager.play('success'); // 완료음
                     return;
                 }
                 
                 const cell = document.getElementById(`sdg-cell-${sdgsData[i].id}`);
-                // 이미 획득한 게 아니면 흑백 오픈
                 if (!cell.classList.contains('earned')) {
                     cell.classList.remove('locked');
                     cell.classList.add('scanned');
                 }
                 
-                // 주의: 여기서 Title을 보여주지 않음 (정답 유출 방지)
                 cell.title = `SDG #${sdgsData[i].id}`; 
                 
-                // 번호 뱃지
                 if(!cell.querySelector('.badge-num')) {
                     const badge = document.createElement('div');
                     badge.className = "badge-num absolute top-0 right-0 bg-black text-white text-[8px] px-1 rounded-bl";
@@ -523,19 +624,18 @@
                 }
 
                 i++;
-            }, 30);
+            }, 50);
         }
 
-        // 2.5 목표 선택 (정보 숨김 - 호기심 유발)
         function selectMission(sdg) {
             if(!isScanComplete) return; 
+            SoundManager.play('click');
 
             selectedMission = sdg;
             
             document.querySelectorAll('.grid-item').forEach(el => el.classList.remove('selected'));
             document.getElementById(`sdg-cell-${sdg.id}`).classList.add('selected');
             
-            // 제목과 설명을 숨기고 번호만 보여줌
             document.getElementById('pokedex-msg').innerHTML = `선택: <span class='text-red-600 font-bold'>SDG #${sdg.id}</span><br>이 파트너의 정체를 밝히러 가겠나?`;
             const nextBtn = document.getElementById('next-mission-btn');
             nextBtn.disabled = false;
@@ -546,7 +646,6 @@
             startQuiz();
         }
 
-        // 3. 퀴즈 배틀 (설명 보고 제목 맞추기)
         function startQuiz() {
             showScreen('screen-quiz');
             document.getElementById('quiz-num').innerText = selectedMission.id;
@@ -556,13 +655,9 @@
         function generateIdentityQuiz() {
             const answer = selectedMission;
             
-            // 이미지 표시
             document.getElementById('quiz-img').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${answer.pokeId}.png`;
-            
-            // 핵심 변경: 퀴즈 질문을 "설명"으로 보여줌
             document.getElementById('quiz-question').innerText = `"${answer.desc}"`;
             
-            // 정답 + 오답 2개
             let options = [answer];
             while(options.length < 3) {
                 const wrong = sdgsData[Math.floor(Math.random() * sdgsData.length)];
@@ -576,10 +671,7 @@
             options.forEach(opt => {
                 const btn = document.createElement('button');
                 btn.className = "w-full bg-white border-2 border-black py-3 rounded hover:bg-slate-100 font-bold text-sm transition";
-                
-                // 보기는 "번호: 제목" (설명은 뺌, 왜냐하면 문제가 설명이니까)
                 btn.innerText = `${opt.id}번: ${opt.title}`;
-                
                 btn.onclick = () => submitQuiz(opt.id === answer.id);
                 btnContainer.appendChild(btn);
             });
@@ -592,17 +684,18 @@
             feedback.classList.remove('hidden');
             
             if(isCorrect) {
+                SoundManager.play('success');
                 feedback.innerHTML = `정답! 이 파트너는<br><span class='text-yellow-400'>${selectedMission.title}</span> 담당이다!`;
                 feedback.className = "bg-blue-600 text-white font-bold p-2 border-2 border-black rounded mb-2";
                 if(typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
                 setTimeout(() => showScreen('screen-slot'), 2000);
             } else {
+                SoundManager.play('error');
                 feedback.innerText = "틀렸다! 설명을 다시 잘 읽어봐라.";
                 feedback.className = "bg-red-100 text-red-700 font-bold p-2 border-2 border-red-500 rounded mb-2 animate-bounce";
             }
         }
 
-        // 4. 슬롯 머신
         function resetSlotMachine() {
             const btn = document.getElementById('spin-btn');
             const resultBox = document.getElementById('slot-result');
@@ -620,6 +713,7 @@
         }
 
         function spinSlot() {
+            SoundManager.play('click');
             const btn = document.getElementById('spin-btn');
             const resultBox = document.getElementById('slot-result');
             const slot1 = document.getElementById('slot-1');
@@ -631,10 +725,12 @@
 
             let count = 0;
             const timer = setInterval(() => {
+                SoundManager.play('spin'); // 회전음
                 slot2.innerText = tools[Math.floor(Math.random()*tools.length)];
                 count++;
                 if(count > 20) {
                     clearInterval(timer);
+                    SoundManager.play('success'); // 슬롯 완료음
                     const finalTool = tools[Math.floor(Math.random()*tools.length)];
                     
                     slot1.innerText = selectedMission.title;
@@ -650,11 +746,9 @@
         }
 
         function goPledge() {
-            // 파트너 정보 세팅
             document.getElementById('pledge-partner-img').src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${selectedMission.pokeId}.png`;
             document.getElementById('pledge-partner-name').innerText = selectedMission.title;
             
-            // 맞춤형 행동 리스트 생성
             const listContainer = document.getElementById('action-list');
             listContainer.innerHTML = "";
             
@@ -679,8 +773,8 @@
             showScreen('screen-pledge');
         }
 
-        // 5. 결과 및 배지 획득
         function selectPledge(pledgeName) {
+            SoundManager.play('win'); // 승리음
             earnedBadges.add(selectedMission.id);
             const currentScore = earnedBadges.size;
 
@@ -698,6 +792,24 @@
         function restartGame() {
             document.getElementById('start-badge-count').innerText = `${earnedBadges.size} / 17`;
             showScreen('screen-start');
+        }
+
+        // 이미지 다운로드 기능 추가
+        function downloadBadge() {
+            const card = document.getElementById('trainer-card-capture');
+            html2canvas(card, { 
+                useCORS: true, 
+                scale: 2,
+                backgroundColor: null // 투명 배경 처리 (필요시)
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `SDG_Trainer_Card_${trainerName}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            }).catch(err => {
+                console.error("캡처 실패:", err);
+                alert("이미지 저장에 실패했습니다. (브라우저 보안 설정 확인 필요)");
+            });
         }
     </script>
 </body>
